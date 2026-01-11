@@ -48,7 +48,7 @@ public class Parameters {
      * 
      */
     public enum PlanningAlgorithm{
-        INVALID, RANDOM, HEFT, DHEFT
+        INVALID, RANDOM, HEFT, DHEFT, CACS
     }
     
     /**

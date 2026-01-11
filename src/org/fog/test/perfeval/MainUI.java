@@ -1022,7 +1022,7 @@ public class MainUI extends JFrame {
 	             */
 	            Parameters.SchedulingAlgorithm sch_method =Parameters.SchedulingAlgorithm.valueOf(scheduler_method);
 	            Parameters.Optimization opt_objective = Parameters.Optimization.valueOf(optimize_objective);
-	            Parameters.PlanningAlgorithm pln_method = Parameters.PlanningAlgorithm.INVALID;
+	            Parameters.PlanningAlgorithm pln_method = Parameters.PlanningAlgorithm.CACS;
 	            ReplicaCatalog.FileSystem file_system = ReplicaCatalog.FileSystem.SHARED;
 	            /**
 	             * No overheads

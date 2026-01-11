@@ -73,6 +73,10 @@ public class Task extends Cloudlet {
      */
     private double taskFinishTime;
     private long runlength;
+    
+    private double cacsSvi;
+    private double cacsEvi;
+
 
     /**
      * Allocates a new Task object. The task length should be greater than or
@@ -103,6 +107,9 @@ public class Task extends Cloudlet {
         this.fileList = new ArrayList<>();
         this.impact = 0.0;
         this.taskFinishTime = -1.0;
+        this.cacsSvi = 0.0;
+        this.cacsEvi = 0.0;
+
     }
 
     /**
@@ -252,6 +259,24 @@ public class Task extends Cloudlet {
     public void addFile(FileItem file) {
         this.fileList.add(file);
     }
+    /**
+     * Gets the CACS Start Violation Index (SVI)
+     *
+     * @return cacsSvi
+     */
+    public double getCacsSvi() {
+        return this.cacsSvi;
+    }
+
+    /**
+     * Gets the CACS End Violation Index (EVI)
+     *
+     * @return cacsEvi
+     */
+    public double getCacsEvi() {
+        return this.cacsEvi;
+    }
+
 
     /**
      * Sets a file list
@@ -289,6 +314,24 @@ public class Task extends Cloudlet {
      */
     public void setTaskFinishTime(double time) {
         this.taskFinishTime = time;
+    }
+
+    /**
+     * Sets the CACS Start Violation Index (SVI)
+     *
+     * @param cacsSvi start violation index
+     */
+    public void setCacsSvi(double cacsSvi) {
+        this.cacsSvi = cacsSvi;
+    }
+
+    /**
+     * Sets the CACS End Violation Index (EVI)
+     *
+     * @param cacsEvi end violation index
+     */
+    public void setCacsEvi(double cacsEvi) {
+        this.cacsEvi = cacsEvi;
     }
 
     /**
@@ -347,3 +390,5 @@ public class Task extends Cloudlet {
         return cost;
     }*/
 }
+
+
