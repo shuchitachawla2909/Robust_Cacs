@@ -225,6 +225,7 @@ public class WorkflowEngine extends SimEntity {
 				case MINMIN:
 				case MAXMIN:
 				case FCFS:
+				case CACS:
 				case MCT:
 				case STATIC:
 				case DATA:

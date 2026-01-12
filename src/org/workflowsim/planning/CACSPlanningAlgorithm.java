@@ -1,21 +1,41 @@
 package org.workflowsim.planning;
 
 import java.util.*;
-import org.cloudbus.cloudsim.Consts;
 import org.cloudbus.cloudsim.Log;
 import org.workflowsim.CondorVM;
 import org.workflowsim.FileItem;
 import org.workflowsim.Task;
 import org.workflowsim.utils.Parameters;
 
+/**
+ * Offline planning component for the CACS scheduling strategy.
+ *
+ * This class:
+ *  - performs a pre-simulation of workflow execution at the client side,
+ *  - models a single I/O port by avoiding overlapping send/receive intervals,
+ *  - assigns each task a priority based on its pre-simulated send start time.
+ *
+ * The produced priority is later consumed by the runtime scheduler.
+ */
 public class CACSPlanningAlgorithm extends BasePlanningAlgorithm {
 
+    /** Final task ordering after offline planning */
     private List<Task> priorityList;
+
+    /** Average bandwidth across all VMs (must be unit-consistent) */
     private double averageBandwidth;
+
+    /** Average computation time of each task across eligible VMs */
     private Map<Task, Double> avgCompTime;
+
+    /** Tracks occupied I/O intervals to avoid port collisions */
     private OverlapBuffer ob;
 
+    /** Limit for factorial permutation when reordering parallel parents */
     private static final int MAX_PERMUTE_PARENTS = 6;
+
+    /** Small epsilon to avoid floating-point overlap issues */
+    private static final double EPS = 1e-9;
 
     public CACSPlanningAlgorithm() {
         priorityList = new ArrayList<>();
@@ -23,6 +43,15 @@ public class CACSPlanningAlgorithm extends BasePlanningAlgorithm {
         ob = new OverlapBuffer();
     }
 
+    /**
+     * Entry point for offline planning.
+     *
+     * Steps:
+     *  - estimate computation and communication costs,
+     *  - enumerate all root-to-leaf paths in the DAG,
+     *  - schedule tasks in descending critical-path order,
+     *  - assign a final priority to each task.
+     */
     @Override
     public void run() {
         Log.printLine("CACS offline planner started");
@@ -30,15 +59,20 @@ public class CACSPlanningAlgorithm extends BasePlanningAlgorithm {
         averageBandwidth = calculateAverageBandwidth();
         computeAvgCompTimes();
 
+        // Enumerate all DAG paths and process longer paths first
         List<List<Task>> paths = enumerateAllPaths();
         paths.sort((a, b) -> Double.compare(pathTau(b), pathTau(a)));
 
         Set<Task> scheduled = new HashSet<>();
 
+        // Schedule tasks path-by-path, ensuring dependencies are respected
         for (List<Task> path : paths) {
             for (Task t : path) {
-                List<Task> unscheduledParents = collectUnscheduledParents(t, scheduled);
 
+                List<Task> unscheduledParents =
+                        collectUnscheduledParents(t, scheduled);
+
+                // If multiple parents are ready, try reordering them
                 if (unscheduledParents.size() == 1) {
                     schedulePresim(unscheduledParents.get(0), scheduled);
                 } else if (unscheduledParents.size() > 1) {
@@ -53,38 +87,25 @@ public class CACSPlanningAlgorithm extends BasePlanningAlgorithm {
             }
         }
 
+        // Safety net: schedule any remaining tasks
         for (Task t : getTaskList()) {
             if (!scheduled.contains(t)) {
                 schedulePresim(t, scheduled);
             }
         }
 
+        // Final priority is based on send start time (earlier = higher priority)
         priorityList = new ArrayList<>(getTaskList());
         priorityList.sort(Comparator
                 .comparingDouble(Task::getCacsSvi)
                 .thenComparingInt(Task::getCloudletId));
-        
-        System.out.println("========== CACS PRIORITY LIST ==========");
-        System.out.println("TaskID\tSendStart\tFinish\tParents");
 
+        int rank = 0;
         for (Task t : priorityList) {
-            String parents = (t.getParentList() == null || t.getParentList().isEmpty())
-                    ? "None"
-                    : t.getParentList().stream()
-                        .map(p -> String.valueOf(p.getCloudletId()))
-                        .reduce((a, b) -> a + "," + b)
-                        .orElse("");
-
-            System.out.println(
-                    t.getCloudletId() + "\t" +
-                    String.format("%.2f", t.getCacsSvi()) + "\t\t" +
-                    String.format("%.2f", t.getCacsEvi()) + "\t\t" +
-                    parents
-            );
+            t.setCacsRank(rank++);
+            t.setClassType(t.getCacsRank());
         }
 
-        System.out.println("=======================================");
-        
         Log.printLine("CACS offline planning finished");
     }
 
@@ -92,37 +113,44 @@ public class CACSPlanningAlgorithm extends BasePlanningAlgorithm {
         return priorityList;
     }
 
-    /* ================= Algorithm 2 ================= */
-
+    /**
+     * Pre-simulates sending, execution, and receiving of a task
+     * while ensuring no two I/O operations overlap at the client.
+     */
     private void schedulePresim(Task task, Set<Task> scheduled) {
-        if (scheduled.contains(task)) return;
+        if (task == null || scheduled.contains(task)) return;
 
-        for (Task p : task.getParentList()) {
-            if (!scheduled.contains(p)) {
-                schedulePresim(p, scheduled);
+        // Ensure all parents are scheduled first
+        List<Task> parents = task.getParentList();
+        if (parents != null) {
+            for (Task p : parents) {
+                if (!scheduled.contains(p)) {
+                    schedulePresim(p, scheduled);
+                }
             }
         }
 
         double Lsend = computeLsend(task);
         double Lrecv = computeLrecv(task);
-        double dvi = avgCompTime.get(task);
+        double dvi = avgCompTime.getOrDefault(task, 1.0);
 
+        // Earliest time after all parent results are available
         double ready = 0.0;
-        for (Task p : task.getParentList()) {
-            ready = Math.max(ready, p.getCacsEvi() + 1.0);
+        if (parents != null) {
+            for (Task p : parents) {
+                ready = Math.max(ready, p.getCacsEvi() + 1.0);
+            }
         }
 
+        // Schedule send, execution, and receive sequentially
         double sendStart = ob.findEarliestGapAfter(ready, Lsend);
-        double start = sendStart + Lsend;
-        double finish = start + dvi;
-
-        
-        double recvStart = ob.findEarliestGapAfter(finish, Lrecv);
+        double execEnd = sendStart + Lsend + dvi;
+        double recvStart = ob.findEarliestGapAfter(execEnd, Lrecv);
         double recvEnd = recvStart + Lrecv;
 
-        
-        ob.insertInterval(sendStart, sendStart + Lsend); // send
-        ob.insertInterval(recvStart, recvEnd);          // receive
+        // Reserve I/O intervals to avoid collisions
+        ob.insertInterval(sendStart - EPS, sendStart + Lsend + EPS);
+        ob.insertInterval(recvStart - EPS, recvEnd + EPS);
 
         task.setCacsSvi(sendStart);
         task.setCacsEvi(recvEnd);
@@ -130,10 +158,14 @@ public class CACSPlanningAlgorithm extends BasePlanningAlgorithm {
         scheduled.add(task);
     }
 
-    /* ================= Algorithm 3 ================= */
-
+    /**
+     * Attempts to reorder a set of parallel parent tasks to reduce
+     * overall completion time under the single-port constraint.
+     */
     private List<Task> arrangeParallelParents(List<Task> parents) {
+
         if (parents.size() <= MAX_PERMUTE_PARENTS) {
+
             List<List<Task>> perms = PermutationUtil.permute(parents);
             double best = Double.POSITIVE_INFINITY;
             List<Task> bestOrder = parents;
@@ -146,111 +178,120 @@ public class CACSPlanningAlgorithm extends BasePlanningAlgorithm {
                     simulate(t, tmpOb, tmpEvi);
                 }
 
-                double max = tmpEvi.values().stream().mapToDouble(v -> v).max().orElse(0);
-                if (max < best) {
-                    best = max;
+                double makespan =
+                        tmpEvi.values().stream()
+                                .mapToDouble(v -> v)
+                                .max()
+                                .orElse(Double.POSITIVE_INFINITY);
+
+                if (makespan < best) {
+                    best = makespan;
                     bestOrder = perm;
                 }
             }
             return bestOrder;
         }
 
+        // Fallback heuristic for large parent sets
         parents.sort((a, b) -> Double.compare(taskTau(b), taskTau(a)));
         return parents;
     }
 
-    private void simulate(Task t, OverlapBuffer tmpOb, Map<Task, Double> tmpEvi) {
+    /**
+     * Lightweight simulation used during parent reordering.
+     * Does not modify global state.
+     */
+    private void simulate(Task t,
+                          OverlapBuffer tmpOb,
+                          Map<Task, Double> tmpEvi) {
+
         double ready = 0.0;
-        for (Task p : t.getParentList()) {
-            ready = Math.max(ready, tmpEvi.getOrDefault(p, p.getCacsEvi()) + 1.0);
+        List<Task> parents = t.getParentList();
+        if (parents != null) {
+            for (Task p : parents) {
+                double pe = tmpEvi.getOrDefault(p, p.getCacsEvi());
+                ready = Math.max(ready, pe + 1.0);
+            }
         }
 
         double Lsend = computeLsend(t);
         double Lrecv = computeLrecv(t);
-        double dvi = avgCompTime.get(t);
+        double dvi = avgCompTime.getOrDefault(t, 1.0);
 
         double sendStart = tmpOb.findEarliestGapAfter(ready, Lsend);
-        double execStart = sendStart + Lsend;
-        double execEnd = execStart + dvi;
-
-        
+        double execEnd = sendStart + Lsend + dvi;
         double recvStart = tmpOb.findEarliestGapAfter(execEnd, Lrecv);
         double recvEnd = recvStart + Lrecv;
 
-        
-        tmpOb.insertInterval(sendStart, sendStart + Lsend); // send
-        tmpOb.insertInterval(recvStart, recvEnd);          // receive
+        tmpOb.insertInterval(sendStart - EPS, sendStart + Lsend + EPS);
+        tmpOb.insertInterval(recvStart - EPS, recvEnd + EPS);
+
         tmpEvi.put(t, recvEnd);
     }
 
-    /* ================= Helpers ================= */
-    
+    /* ================= Graph utilities ================= */
+
+    /** Enumerates all root-to-leaf paths in the workflow DAG */
     private List<List<Task>> enumerateAllPaths() {
         List<List<Task>> allPaths = new ArrayList<>();
 
-        // 1. find entry tasks
-        List<Task> entryTasks = new ArrayList<>();
         for (Task t : getTaskList()) {
             if (t.getParentList() == null || t.getParentList().isEmpty()) {
-                entryTasks.add(t);
+                dfs(t, new LinkedList<>(), allPaths);
+            }
+        }
+        return allPaths;
+    }
+
+    private void dfs(Task current,
+                     LinkedList<Task> currentPath,
+                     List<List<Task>> allPaths) {
+
+        currentPath.addLast(current);
+
+        List<Task> children = current.getChildList();
+        if (children == null || children.isEmpty()) {
+            allPaths.add(new ArrayList<>(currentPath));
+        } else {
+            for (Task child : children) {
+                if (!currentPath.contains(child)) {
+                    dfs(child, currentPath, allPaths);
+                }
             }
         }
 
-        // 2. DFS from each entry
-        for (Task entry : entryTasks) {
-            LinkedList<Task> currentPath = new LinkedList<>();
-            Set<Task> visited = new HashSet<>();
-            dfs(entry, currentPath, visited, allPaths);
-        }
-
-        return allPaths;
+        currentPath.removeLast();
     }
-    
-    private void dfs(Task current, LinkedList<Task> currentPath, Set<Task> visited, List<List<Task>> allPaths) {
-		
-		currentPath.addLast(current);
-		visited.add(current);
-		
-		// exit task → store path
-		if (current.getChildList() == null || current.getChildList().isEmpty()) {
-		   allPaths.add(new ArrayList<>(currentPath));
-		} else {
-		   for (Task child : current.getChildList()) {
-		       if (!visited.contains(child)) {
-		           dfs(child, currentPath, visited, allPaths);
-		       }
-		   }
-		}
-		
-		// backtrack
-		currentPath.removeLast();
-		visited.remove(current);
-	}
 
-    
-
-    
-
+    /* ================= Cost helpers ================= */
 
     private double taskTau(Task t) {
-        return computeLsend(t) + avgCompTime.get(t) + computeLrecv(t);
+        return computeLsend(t)
+                + avgCompTime.getOrDefault(t, 1.0)
+                + computeLrecv(t);
     }
 
     private double pathTau(List<Task> path) {
         return path.stream().mapToDouble(this::taskTau).sum();
     }
 
-    private List<Task> collectUnscheduledParents(Task t, Set<Task> scheduled) {
+    private List<Task> collectUnscheduledParents(Task t,
+                                                 Set<Task> scheduled) {
         List<Task> res = new ArrayList<>();
-        for (Task p : t.getParentList()) {
-            if (!scheduled.contains(p)) res.add(p);
+        List<Task> parents = t.getParentList();
+        if (parents != null) {
+            for (Task p : parents) {
+                if (!scheduled.contains(p)) res.add(p);
+            }
         }
         return res;
     }
 
+    /** Computes average execution time of a task across all eligible VMs */
     private void computeAvgCompTimes() {
         for (Task t : getTaskList()) {
-            double sum = 0; int c = 0;
+            double sum = 0;
+            int c = 0;
             for (Object o : getVmList()) {
                 CondorVM vm = (CondorVM) o;
                 if (vm.getNumberOfPes() >= t.getNumberOfPes()) {
@@ -264,24 +305,37 @@ public class CACSPlanningAlgorithm extends BasePlanningAlgorithm {
 
     private double calculateAverageBandwidth() {
         double sum = 0;
-        for (Object o : getVmList()) sum += ((CondorVM) o).getBw();
+        for (Object o : getVmList()) {
+            sum += ((CondorVM) o).getBw();
+        }
         return Math.max(sum / getVmList().size(), 1.0);
     }
 
+    /**
+     * Estimates send time assuming:
+     *  - File size in BYTES
+     *  - Bandwidth in BITS / SECOND
+     */
     private double computeLsend(Task t) {
         double bytes = 0;
         for (FileItem f : t.getFileList()) {
-            if (f.getType() == Parameters.FileType.OUTPUT) bytes += f.getSize();
+            if (f.getType() == Parameters.FileType.OUTPUT) {
+                bytes += f.getSize();
+            }
         }
-        return (bytes / Consts.MILLION) * 8.0 / averageBandwidth;
+        return (bytes * 8.0) / averageBandwidth;
     }
 
     private double computeLrecv(Task t) {
         return computeLsend(t);
     }
 
-    /* ================= OB + Permutation ================= */
+    /* ================= Support classes ================= */
 
+    /**
+     * Tracks occupied I/O intervals to prevent overlapping
+     * send/receive operations at the client.
+     */
     private static class OverlapBuffer {
         List<double[]> ints = new ArrayList<>();
 
@@ -306,6 +360,7 @@ public class CACSPlanningAlgorithm extends BasePlanningAlgorithm {
         }
     }
 
+    /** Utility for bounded permutation generation */
     private static class PermutationUtil {
         static List<List<Task>> permute(List<Task> list) {
             List<List<Task>> res = new ArrayList<>();
@@ -314,7 +369,10 @@ public class CACSPlanningAlgorithm extends BasePlanningAlgorithm {
         }
 
         static void permute(List<Task> a, int i, List<List<Task>> r) {
-            if (i == a.size()) r.add(new ArrayList<>(a));
+            if (i == a.size()) {
+                r.add(new ArrayList<>(a));
+                return;
+            }
             for (int j = i; j < a.size(); j++) {
                 Collections.swap(a, i, j);
                 permute(a, i + 1, r);

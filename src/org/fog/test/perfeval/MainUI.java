@@ -114,7 +114,7 @@ import jxl.write.biff.RowsExceededException;
 
 @SuppressWarnings("serial")
 public class MainUI extends JFrame {
-	final static String[] algrithmStr = new String[]{"MINMIN","MAXMIN","FCFS","ROUNDROBIN","PSO","GA"};
+	final static String[] algrithmStr = new String[]{"MINMIN","MAXMIN","FCFS","ROUNDROBIN","PSO","GA","CACS"};
 	final static String[] objectiveStr = new String[]{"Time","Energy","Cost"};
 	final static String[] inputTypeStr = new String[]{"Montage","CyberShake","Epigenomics","Inspiral","Sipht"};
 	final static String[] nodeSizeStr = new String[]{};
@@ -169,6 +169,7 @@ public class MainUI extends JFrame {
 	private final JCheckBox chckbxMinmin = new JCheckBox("MINMIN");
 	private final JCheckBox chckbxMaxmin = new JCheckBox("MAXMIN");
 	private final JCheckBox chckbxFcfs = new JCheckBox("FCFS");
+	private final JCheckBox chckbxCacs = new JCheckBox("CACS");
 	private final JCheckBox chckbxRoundrobin = new JCheckBox("ROUNDROBIN");
 	private final JCheckBox chckbxGa = new JCheckBox("GA");
 	private final JCheckBox chckbxPso = new JCheckBox("PSO");
@@ -572,6 +573,12 @@ public class MainUI extends JFrame {
 		CheckBoxList.add(chckbxGa);
 		panel_2.add(chckbxGa);
 		
+		chckbxCacs.setFont(new Font("Consolas", Font.PLAIN, 12));
+		chckbxCacs.setBackground(Color.WHITE);
+		chckbxCacs.setBounds(154, 116, 68, 23);
+		CheckBoxList.add(chckbxCacs);
+		panel_2.add(chckbxCacs);
+				
 		rdbtnTime.setFont(new Font("Consolas", Font.PLAIN, 12));
 		rdbtnTime.setBackground(Color.WHITE);
 		rdbtnTime.setBounds(89, 144, 68, 23);

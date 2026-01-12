@@ -143,15 +143,20 @@ public class AlgorithmsSettingUI extends JFrame {
 		lblFcfs.setFont(new Font("Consolas", Font.PLAIN, 16));
 		lblFcfs.setBounds(28, 128, 95, 15);
 		AlgorithmsPanel.add(lblFcfs);
-		
+				
 		JLabel lblRoundrobin = new JLabel("RoundRobin");
 		lblRoundrobin.setFont(new Font("Consolas", Font.PLAIN, 16));
 		lblRoundrobin.setBounds(28, 168, 95, 15);
 		AlgorithmsPanel.add(lblRoundrobin);
 		
+		JLabel lblCacs = new JLabel("CACS");
+		lblCacs.setFont(new Font("Consolas", Font.PLAIN, 16));
+		lblCacs.setBounds(28, 205, 95, 15);
+		AlgorithmsPanel.add(lblCacs);
+		
 		JLabel lblPso_1 = new JLabel("PSO");
 		lblPso_1.setFont(new Font("Consolas", Font.PLAIN, 16));
-		lblPso_1.setBounds(28, 209, 95, 15);
+		lblPso_1.setBounds(28, 245, 95, 15);
 		lblPso_1.setForeground(Color.blue);
 		AlgorithmsPanel.add(lblPso_1);
 		LabeltoPanel.put(lblPso_1, psoSettingPanel);
@@ -159,7 +164,7 @@ public class AlgorithmsSettingUI extends JFrame {
 		
 		JLabel lblGa_1 = new JLabel("GA");
 		lblGa_1.setFont(new Font("Consolas", Font.PLAIN, 16));
-		lblGa_1.setBounds(28, 247, 95, 15);
+		lblGa_1.setBounds(28, 280, 95, 15);
 		lblGa_1.setForeground(Color.blue);
 		AlgorithmsPanel.add(lblGa_1);
 		lblGa_1.addMouseListener(new MouseListener1(){});

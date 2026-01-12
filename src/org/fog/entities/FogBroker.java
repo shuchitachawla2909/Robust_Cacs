@@ -20,6 +20,7 @@ import org.workflowsim.WorkflowEngine;
 import org.workflowsim.WorkflowSimTags;
 import org.workflowsim.failure.FailureGenerator;
 import org.workflowsim.scheduling.BaseSchedulingAlgorithm;
+import org.workflowsim.scheduling.CACSSchedulingAlgorithm;
 import org.workflowsim.scheduling.DataAwareSchedulingAlgorithm;
 import org.workflowsim.scheduling.FCFSSchedulingAlgorithm;
 import org.workflowsim.scheduling.GASchedulingAlgorithm;
@@ -152,6 +153,7 @@ public class FogBroker extends PowerDatacenterBroker{
 				case MCT:
 				case STATIC:
 				case DATA:
+				case CACS:
 				case ROUNDROBIN:
 					processCloudletUpdate(ev);
 					break;
@@ -218,6 +220,9 @@ public class FogBroker extends PowerDatacenterBroker{
             case ROUNDROBIN:
                 algorithm = new RoundRobinSchedulingAlgorithm();
                 break;
+            case CACS:
+            	algorithm =  new CACSSchedulingAlgorithm();
+            	break;
             default:
                 algorithm = new StaticSchedulingAlgorithm();
                 break;
